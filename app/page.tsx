@@ -1,251 +1,282 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import React, { useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import {
-  Accessibility,
   AlertTriangle,
   CheckCircle2,
   Clock,
   Flag,
   HeartHandshake,
-  Lock,
+  Loader2,
+  LogOut,
   MapPin,
   MessageCircle,
+  RefreshCw,
   Send,
-  Share2,
   ShieldCheck,
   Sparkles,
-  Star,
   UserCheck,
   Users,
 } from "lucide-react";
+import { supabase, supabaseConfigReady } from "@/lib/supabaseClient";
 
-type User = {
+type Profile = {
   id: string;
   name: string;
+  email: string;
   role: string;
-  area: string;
-  badges: string[];
-  assists: number;
-  reliability: number;
+  campus_area: string | null;
+  verification_level: string | null;
+  completed_assists: number | null;
+  reliability_score: number | null;
 };
 
 type AssistRequest = {
   id: string;
-  user: User;
-  text: string;
-  category: string;
-  from: string;
-  to: string;
-  time: string;
-  effort: string;
-  support: string;
-  car: string;
-  safety: string;
-  status: string;
+  requester_id: string;
+  title: string;
+  description: string;
+  category: string | null;
+  from_area: string | null;
+  to_area: string | null;
+  time_window: string | null;
+  effort_level: string | null;
+  support_need: string | null;
+  requires_car: boolean | null;
+  safety_status: string | null;
+  status: string | null;
+  created_at: string;
 };
 
 type AssistOffer = {
   id: string;
-  user: User;
-  text: string;
-  category: string;
-  from: string;
-  to: string;
-  time: string;
-  effort: string;
-  car: boolean;
+  helper_id: string;
+  request_id: string;
+  description: string;
+  category: string | null;
+  from_area: string | null;
+  to_area: string | null;
+  time_window: string | null;
+  has_car: boolean | null;
+  max_effort: string | null;
+  status: string | null;
+  created_at: string;
+};
+
+type Match = {
+  id: string;
+  request_id: string;
+  offer_id: string;
+  requester_id: string;
+  helper_id: string;
+  requester_accepted: boolean | null;
+  helper_confirmed: boolean | null;
+  requester_contact_consent: boolean | null;
+  helper_contact_consent: boolean | null;
+  contact_sharing_enabled: boolean | null;
+  safe_spot_id: string | null;
+  status: string | null;
+  created_at: string;
+};
+
+type Message = {
+  id: string;
+  match_id: string;
+  sender_id: string;
+  body: string;
+  moderation_status: string | null;
+  blocked_reason: string | null;
+  created_at: string;
+};
+
+type SafeSpot = {
+  id: string;
+  name: string;
+  area: string | null;
+  lat: number | null;
+  lng: number | null;
+  type: string | null;
+  tags: string[] | null;
+  description: string | null;
+};
+
+type Report = {
+  id: string;
+  reporter_id: string;
+  reported_user_id: string | null;
+  match_id: string | null;
+  reason: string | null;
+  description: string | null;
+  status: string | null;
+  created_at: string;
 };
 
 type Classification = {
-  status: "Safe" | "Needs Revision" | "Blocked";
+  ok: boolean;
   category: string;
   reason: string;
-  support?: string;
-  car?: string;
-  effort?: string;
-  cleaned?: string;
+  support: string;
+  effort: string;
+  requiresCar: boolean;
+  fromArea: string;
+  toArea: string;
+  title: string;
 };
 
-const users: Record<string, User> = {
-  tanmmay: {
-    id: "tanmmay",
-    name: "Tanmmay",
-    role: "Requester",
-    area: "Tercero",
-    badges: ["Verified UC Davis Student", "Photo Verified"],
-    assists: 3,
-    reliability: 98,
-  },
-  maya: {
-    id: "maya",
-    name: "Maya",
-    role: "Helper",
-    area: "Tercero",
-    badges: ["Verified UC Davis Student", "Grocery Hero"],
-    assists: 8,
-    reliability: 100,
-  },
-  alex: {
-    id: "alex",
-    name: "Alex",
-    role: "Helper",
-    area: "Segundo",
-    badges: ["Verified UC Davis Student", "Walking Buddy"],
-    assists: 12,
-    reliability: 97,
-  },
-  priya: {
-    id: "priya",
-    name: "Priya",
-    role: "Admin",
-    area: "Campus",
-    badges: ["Campus Moderator", "Verified UC Davis Student"],
-    assists: 0,
-    reliability: 100,
-  },
+const demoAccounts = [
+  { label: "Tanmmay", email: "tanmmay@ucdavis.edu", password: "Tanmmay123!" },
+  { label: "Maya", email: "maya@ucdavis.edu", password: "Maya123!" },
+  { label: "Alex", email: "alex@ucdavis.edu", password: "Alex123!" },
+  { label: "Priya", email: "priya@ucdavis.edu", password: "Priya123!" },
+  { label: "Admin", email: "admin@ucdavis.edu", password: "Admin123!" },
+];
+
+const areaCoords: Record<string, { lat: number; lng: number }> = {
+  Tercero: { lat: 38.5377, lng: -121.7528 },
+  Segundo: { lat: 38.5421, lng: -121.761 },
+  "Shields Library": { lat: 38.5393, lng: -121.7498 },
+  "Memorial Union": { lat: 38.5424, lng: -121.7493 },
+  "Trader Joe's": { lat: 38.5467, lng: -121.7602 },
+  Safeway: { lat: 38.5515, lng: -121.7627 },
+  Silo: { lat: 38.5399, lng: -121.7538 },
+  Campus: { lat: 38.5382, lng: -121.7617 },
 };
 
-const demoUsers = Object.values(users);
-
-const safeSpots = [
-  { name: "Trader Joe’s Main Entrance", area: "Trader Joe’s", tags: ["public", "busy", "easy to find"], bestFor: "pickup" },
-  { name: "Tercero Services Center", area: "Tercero", tags: ["public lobby", "student area", "visible"], bestFor: "drop-off" },
-  { name: "Shields Library Main Entrance", area: "Shields Library", tags: ["public", "well-lit", "campus landmark"], bestFor: "walking buddy" },
-  { name: "Memorial Union Front Entrance", area: "Memorial Union", tags: ["busy", "central", "easy to find"], bestFor: "backup" },
-  { name: "Segundo Services Center", area: "Segundo", tags: ["public lobby", "student area", "visible"], bestFor: "drop-off" },
-  { name: "Silo Main Entrance", area: "Silo", tags: ["busy", "central", "food nearby"], bestFor: "backup" },
-];
-
-const seededRequests: AssistRequest[] = [
-  {
-    id: "req-1",
-    user: users.tanmmay,
-    text: "I’m on crutches and need help carrying groceries from Trader Joe’s to Tercero tonight.",
-    category: "Grocery / Carrying",
-    from: "Trader Joe’s",
-    to: "Tercero",
-    time: "Today, 6–7 PM",
-    effort: "Medium",
-    support: "Mobility support",
-    car: "Helpful",
-    safety: "Safe",
-    status: "Open",
-  },
-  {
-    id: "req-2",
-    user: users.tanmmay,
-    text: "Can someone walk with me from Shields Library to Segundo at 10 PM?",
-    category: "Walking Buddy",
-    from: "Shields Library",
-    to: "Segundo",
-    time: "Tonight, 10 PM",
-    effort: "Low",
-    support: "Late-night safety",
-    car: "No",
-    safety: "Safe",
-    status: "Open",
-  },
-];
-
-const seededOffers: AssistOffer[] = [
-  {
-    id: "offer-1",
-    user: users.maya,
-    text: "I’m driving to Trader Joe’s at 6 PM and coming back near Tercero. I can help carry light groceries.",
-    category: "Grocery / Carrying",
-    from: "Campus",
-    to: "Tercero",
-    time: "Today, 6–7 PM",
-    effort: "Medium",
-    car: true,
-  },
-  {
-    id: "offer-2",
-    user: users.alex,
-    text: "I’m leaving Shields around 10 PM and walking toward Segundo.",
-    category: "Walking Buddy",
-    from: "Shields Library",
-    to: "Segundo",
-    time: "Tonight, 10 PM",
-    effort: "Low",
-    car: false,
-  },
-];
-
-const flaggedExamples = [
-  { text: "Can someone pick up alcohol and bring it to my dorm?", status: "Blocked", reason: "Prohibited item + private delivery" },
-  { text: "Can someone move my couch upstairs alone?", status: "Needs revision", reason: "Unsafe heavy lifting" },
-  { text: "Text me at 530-123-4567", status: "Blocked", reason: "Contact sharing disabled" },
-  { text: "Come to my apartment room 312", status: "Blocked", reason: "Private meetup location" },
-];
-
-function classifyRequest(text: string): Classification {
-  const lower = text.toLowerCase();
-  const blockedTerms = ["alcohol", "weed", "drugs", "weapon", "cash loan", "venmo me", "come to my apartment", "my dorm room", "room 312"];
-  const contactPattern = /(\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|@\w+|snapchat|instagram|discord|text me|call me)/i;
-
-  if (blockedTerms.some((term) => lower.includes(term))) {
-    return {
-      status: "Blocked",
-      category: "Unsafe request",
-      reason: "This request includes prohibited items, private meetup details, or unsafe behavior.",
-    };
-  }
-
-  if (contactPattern.test(text)) {
-    return {
-      status: "Needs Revision",
-      category: "Contact Info",
-      reason: "Contact information should only be shared if both users consent.",
-    };
-  }
-
-  let category = "General Assist";
-  if (lower.includes("grocery") || lower.includes("trader joe") || lower.includes("safeway")) category = "Grocery / Carrying";
-  else if (lower.includes("walk") || lower.includes("walking")) category = "Walking Buddy";
-  else if (lower.includes("box") || lower.includes("move")) category = "Small Item Carrying";
-  else if (lower.includes("class") || lower.includes("find")) category = "Campus Navigation";
-  else if (lower.includes("tech") || lower.includes("laptop")) category = "Tech Help";
-
-  const support = lower.includes("crutch") || lower.includes("ankle") || lower.includes("injur") ? "Mobility support" : "None specified";
-  const car = lower.includes("grocery") || lower.includes("target") || lower.includes("trader joe") ? "Helpful" : "No";
-  const effort = lower.includes("carry") || lower.includes("box") || lower.includes("grocery") ? "Medium" : "Low";
-
-  return {
-    status: "Safe",
-    category,
-    reason: "This looks like a small, voluntary, non-monetary assist.",
-    support,
-    car,
-    effort,
-    cleaned: text.replace(/\bidk\b/gi, "").replace(/\bcan someone maybe\b/gi, "Can someone").trim(),
-  };
-}
-
-function contactInfoDetected(text: string) {
-  return /(\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|[\w.-]+@[\w.-]+\.\w+|instagram|snapchat|discord|text me|call me|@\w+)/i.test(text);
-}
-
-function privateLocationDetected(text: string) {
-  return /(apartment|dorm room|bedroom|room \d+|come inside|my house)/i.test(text);
-}
-
-function cn(...classes: Array<string | false | undefined>) {
+function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function Button({ children, onClick, variant = "solid", disabled = false, className = "" }: { children: React.ReactNode; onClick?: () => void; variant?: "solid" | "outline" | "ghost"; disabled?: boolean; className?: string }) {
+function isAdmin(profile: Profile | null) {
+  return profile?.role === "admin" || profile?.role === "moderator";
+}
+
+function isHelper(profile: Profile | null) {
+  return profile?.role === "helper" || profile?.email === "alex@ucdavis.edu";
+}
+
+function isRequester(profile: Profile | null) {
+  return profile?.role === "requester";
+}
+
+function prettyRole(role?: string | null) {
+  if (!role) return "Student";
+  if (role === "moderator") return "Admin / Moderator";
+  return role.charAt(0).toUpperCase() + role.slice(1);
+}
+
+function classifyRequest(text: string): Classification {
+  const lower = text.toLowerCase();
+  const blockedTerms = [
+    "alcohol",
+    "drugs",
+    "weed",
+    "weapon",
+    "cash loan",
+    "medical care",
+    "personal care",
+    "emergency",
+    "apartment",
+    "dorm room",
+    "bedroom",
+    "sexual",
+    "romantic",
+  ];
+  const blocked = blockedTerms.find((term) => lower.includes(term));
+
+  let category = "General Assist";
+  if (/(grocery|groceries|trader joe|safeway)/i.test(text)) category = "Grocery / Carrying";
+  if (/(walk|walking|night|library|segundo)/i.test(text)) category = "Walking Buddy";
+  if (/(boxes|moving|carry)/i.test(text)) category = "Small Item Carrying";
+  if (/(crutches|ankle|injured)/i.test(text)) category = "Mobility support";
+
+  const fromArea = lower.includes("trader joe")
+    ? "Trader Joe's"
+    : lower.includes("safeway")
+      ? "Safeway"
+      : lower.includes("shields")
+        ? "Shields Library"
+        : lower.includes("segundo")
+          ? "Segundo"
+          : "Campus";
+  const toArea = lower.includes("tercero")
+    ? "Tercero"
+    : lower.includes("segundo")
+      ? "Segundo"
+      : lower.includes("silo")
+        ? "Silo"
+        : "Campus";
+
+  return {
+    ok: !blocked,
+    category,
+    reason: blocked
+      ? `Blocked because the request mentions "${blocked}". Keep assists public, voluntary, non-medical, and campus-safe.`
+      : "Looks like a small voluntary assist that can be coordinated through CampusKind.",
+    support: /(crutches|ankle|injured)/i.test(text) ? "Mobility support" : "Peer assist",
+    effort: /(boxes|moving|carry|grocery|groceries)/i.test(text) ? "Medium" : "Low",
+    requiresCar: /(grocery|groceries|trader joe|safeway)/i.test(text),
+    fromArea,
+    toArea,
+    title: category === "Grocery / Carrying" ? "Help carrying groceries" : category,
+  };
+}
+
+function moderateMessage(text: string, contactSharingEnabled: boolean) {
+  const privatePlace = /(apartment|dorm room|bedroom|room 312|come inside|my house)/i.exec(text);
+  if (privatePlace) return `Blocked private meetup language: "${privatePlace[0]}". Please use a public SafeMeet spot.`;
+
+  if (!contactSharingEnabled) {
+    const contact = /(\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|[\w.-]+@[\w.-]+\.\w+|@\w+|text me|call me|instagram|snapchat|discord)/i.exec(text);
+    if (contact) return `Blocked contact sharing while consent is off: "${contact[0]}".`;
+  }
+
+  return null;
+}
+
+function distanceMiles(a: { lat: number; lng: number }, b: { lat: number; lng: number }) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthMiles = 3958.8;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthMiles * Math.asin(Math.sqrt(h));
+}
+
+function walkMinutes(area: string | null | undefined, spot: SafeSpot) {
+  const start = area && areaCoords[area] ? areaCoords[area] : areaCoords.Campus;
+  const end = spot.lat && spot.lng ? { lat: spot.lat, lng: spot.lng } : areaCoords[spot.area || "Campus"] || areaCoords.Campus;
+  return Math.max(2, Math.round((distanceMiles(start, end) / 3) * 60));
+}
+
+function Button({
+  children,
+  onClick,
+  type = "button",
+  variant = "solid",
+  disabled = false,
+  className = "",
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  type?: "button" | "submit";
+  variant?: "solid" | "outline" | "ghost" | "danger";
+  disabled?: boolean;
+  className?: string;
+}) {
   return (
     <button
+      type={type}
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "rounded-2xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
-        variant === "solid" && "bg-slate-950 text-white hover:bg-slate-800",
+        "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50",
+        variant === "solid" && "bg-aggie-blue text-white hover:bg-slate-800",
         variant === "outline" && "border border-slate-200 bg-white text-slate-800 hover:bg-slate-50",
         variant === "ghost" && "text-slate-600 hover:bg-slate-100",
+        variant === "danger" && "bg-rose-600 text-white hover:bg-rose-700",
         className,
       )}
     >
@@ -255,296 +286,885 @@ function Button({ children, onClick, variant = "solid", disabled = false, classN
 }
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("rounded-3xl border border-slate-200 bg-white shadow-sm", className)}>{children}</div>;
+  return <section className={cn("rounded-lg border border-slate-200 bg-white shadow-sm", className)}>{children}</section>;
 }
 
-function Pill({ children, tone = "default" }: { children: React.ReactNode; tone?: "default" | "good" | "warn" | "danger" | "blue" | "purple" }) {
+function Pill({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "green" | "amber" | "red" | "blue" }) {
   const tones = {
-    default: "bg-slate-100 text-slate-700",
-    good: "bg-emerald-100 text-emerald-700",
-    warn: "bg-amber-100 text-amber-800",
-    danger: "bg-rose-100 text-rose-700",
-    blue: "bg-blue-100 text-blue-700",
-    purple: "bg-violet-100 text-violet-700",
+    slate: "bg-slate-100 text-slate-700",
+    green: "bg-emerald-100 text-emerald-800",
+    amber: "bg-amber-100 text-amber-800",
+    red: "bg-rose-100 text-rose-800",
+    blue: "bg-blue-100 text-blue-800",
   };
-  return <span className={cn("inline-flex items-center rounded-full px-3 py-1 text-xs font-medium", tones[tone])}>{children}</span>;
+  return <span className={cn("inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold", tones[tone])}>{children}</span>;
 }
 
-function SectionTitle({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+  type = "text",
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  type?: string;
+}) {
   return (
-    <div className="mb-5 flex items-start gap-3">
-      <div className="rounded-2xl bg-slate-900 p-2 text-white shadow-sm"><Icon size={20} /></div>
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+      <input
+        type={type}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-12 w-full rounded-lg border border-slate-200 bg-white px-4 text-slate-950 outline-none ring-aggie-gold/30 transition focus:border-aggie-blue focus:ring-4"
+      />
+    </label>
+  );
+}
+
+function EmptyState({ children }: { children: React.ReactNode }) {
+  return <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">{children}</div>;
+}
+
+export default function CampusKindApp() {
+  const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [requests, setRequests] = useState<AssistRequest[]>([]);
+  const [offers, setOffers] = useState<AssistOffer[]>([]);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [safeSpots, setSafeSpots] = useState<SafeSpot[]>([]);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [email, setEmail] = useState("tanmmay@ucdavis.edu");
+  const [password, setPassword] = useState("Tanmmay123!");
+  const [requestText, setRequestText] = useState("I'm on crutches and need help carrying groceries from Trader Joe's to Tercero tonight.");
+  const [offerTextByRequest, setOfferTextByRequest] = useState<Record<string, string>>({});
+  const [chatByMatch, setChatByMatch] = useState<Record<string, string>>({});
+
+  const profileById = useMemo(() => new Map(profiles.map((item) => [item.id, item])), [profiles]);
+  const requestById = useMemo(() => new Map(requests.map((item) => [item.id, item])), [requests]);
+  const offerById = useMemo(() => new Map(offers.map((item) => [item.id, item])), [offers]);
+  const myMatches = matches.filter((match) => match.requester_id === profile?.id || match.helper_id === profile?.id || isAdmin(profile));
+  const activeMatches = myMatches.filter((match) => match.status === "active");
+  const classification = useMemo(() => classifyRequest(requestText), [requestText]);
+
+  async function loadProfile(userId: string) {
+    if (!supabase) return null;
+    const { data, error: profileError } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    if (profileError) throw profileError;
+    setProfile(data);
+    return data as Profile | null;
+  }
+
+  async function refresh(userId = session?.user.id) {
+    if (!supabase || !userId) return;
+    setError("");
+    const currentProfile = await loadProfile(userId);
+    if (!currentProfile) {
+      setProfiles([]);
+      setRequests([]);
+      setOffers([]);
+      setMatches([]);
+      setMessages([]);
+      setSafeSpots([]);
+      setReports([]);
+      return;
+    }
+
+    const [profilesRes, requestsRes, offersRes, matchesRes, safeSpotsRes] = await Promise.all([
+      supabase.from("profiles").select("*").order("name"),
+      supabase.from("assist_requests").select("*").order("created_at", { ascending: false }),
+      supabase.from("assist_offers").select("*").order("created_at", { ascending: false }),
+      supabase.from("matches").select("*").order("created_at", { ascending: false }),
+      supabase.from("safe_spots").select("*").order("name"),
+    ]);
+
+    for (const result of [profilesRes, requestsRes, offersRes, matchesRes, safeSpotsRes]) {
+      if (result.error) throw result.error;
+    }
+
+    setProfiles((profilesRes.data || []) as Profile[]);
+    setRequests((requestsRes.data || []) as AssistRequest[]);
+    setOffers((offersRes.data || []) as AssistOffer[]);
+    const matchRows = (matchesRes.data || []) as Match[];
+    setMatches(matchRows);
+    setSafeSpots((safeSpotsRes.data || []) as SafeSpot[]);
+
+    if (matchRows.length) {
+      const matchIds = matchRows.map((match) => match.id);
+      const { data, error: messagesError } = await supabase
+        .from("messages")
+        .select("*")
+        .in("match_id", matchIds)
+        .order("created_at", { ascending: true });
+      if (messagesError) throw messagesError;
+      setMessages((data || []) as Message[]);
+    } else {
+      setMessages([]);
+    }
+
+    if (isAdmin(currentProfile)) {
+      const [reportsRes, blockedMessagesRes] = await Promise.all([
+        supabase.from("reports").select("*").order("created_at", { ascending: false }),
+        supabase.from("messages").select("*").eq("moderation_status", "blocked").order("created_at", { ascending: false }),
+      ]);
+      if (reportsRes.error) throw reportsRes.error;
+      if (blockedMessagesRes.error) throw blockedMessagesRes.error;
+      setReports((reportsRes.data || []) as Report[]);
+      setMessages((previous) => {
+        const seen = new Map(previous.map((message) => [message.id, message]));
+        for (const message of (blockedMessagesRes.data || []) as Message[]) seen.set(message.id, message);
+        return Array.from(seen.values()).sort((a, b) => a.created_at.localeCompare(b.created_at));
+      });
+    } else {
+      setReports([]);
+    }
+  }
+
+  useEffect(() => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    supabase.auth.getSession().then(async ({ data }) => {
+      setSession(data.session);
+      if (data.session?.user.id) {
+        try {
+          await refresh(data.session.user.id);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not load CampusKind data.");
+        }
+      }
+      setLoading(false);
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      if (nextSession?.user.id) {
+        refresh(nextSession.user.id).catch((err) => setError(err instanceof Error ? err.message : "Could not refresh session."));
+      } else {
+        setProfile(null);
+        setLoading(false);
+      }
+    });
+
+    return () => listener.subscription.unsubscribe();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !session?.user.id || !profile) return;
+
+    const channel = supabase
+      .channel("campuskind-dashboard")
+      .on("postgres_changes", { event: "*", schema: "public", table: "assist_requests" }, () => refresh().catch(console.error))
+      .on("postgres_changes", { event: "*", schema: "public", table: "assist_offers" }, () => refresh().catch(console.error))
+      .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => refresh().catch(console.error))
+      .on("postgres_changes", { event: "*", schema: "public", table: "reports" }, () => refresh().catch(console.error))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages" }, (payload) => {
+        const next = payload.new as Message;
+        setMessages((current) => (current.some((message) => message.id === next.id) ? current : [...current, next]));
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id, profile?.id]);
+
+  async function signIn(event: React.FormEvent) {
+    event.preventDefault();
+    if (!supabase) return;
+    setBusy(true);
+    setError("");
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) setError(signInError.message);
+    setBusy(false);
+  }
+
+  async function signOut() {
+    if (!supabase) return;
+    await supabase.auth.signOut();
+    setSession(null);
+    setProfile(null);
+  }
+
+  async function createRequest() {
+    if (!supabase || !profile || !classification.ok) return;
+    setBusy(true);
+    setError("");
+    const { error: insertError } = await supabase.from("assist_requests").insert({
+      requester_id: profile.id,
+      title: classification.title,
+      description: requestText.trim(),
+      category: classification.category,
+      from_area: classification.fromArea,
+      to_area: classification.toArea,
+      time_window: "Tonight",
+      effort_level: classification.effort,
+      support_need: classification.support,
+      requires_car: classification.requiresCar,
+      safety_status: "safe",
+      status: "open",
+    });
+    if (insertError) setError(insertError.message);
+    else {
+      setRequestText("");
+      await refresh();
+    }
+    setBusy(false);
+  }
+
+  async function offerHelp(request: AssistRequest) {
+    if (!supabase || !profile) return;
+    setBusy(true);
+    const description =
+      offerTextByRequest[request.id]?.trim() ||
+      `I can help with "${request.title}" near ${request.from_area || "campus"} and coordinate through CampusKind.`;
+    const { error: insertError } = await supabase.from("assist_offers").insert({
+      helper_id: profile.id,
+      request_id: request.id,
+      description,
+      category: request.category,
+      from_area: request.from_area,
+      to_area: request.to_area,
+      time_window: request.time_window,
+      has_car: request.requires_car,
+      max_effort: request.effort_level,
+      status: "open",
+    });
+    if (insertError) setError(insertError.message);
+    else await refresh();
+    setBusy(false);
+  }
+
+  async function acceptOffer(offer: AssistOffer) {
+    if (!supabase || !profile) return;
+    const request = requestById.get(offer.request_id);
+    if (!request) return;
+    setBusy(true);
+    const { error: insertError } = await supabase.from("matches").insert({
+      request_id: request.id,
+      offer_id: offer.id,
+      requester_id: profile.id,
+      helper_id: offer.helper_id,
+      requester_accepted: true,
+      helper_confirmed: false,
+      status: "pending_helper_confirmation",
+    });
+    if (insertError) setError(insertError.message);
+    else {
+      await supabase.from("assist_offers").update({ status: "matched" }).eq("id", offer.id);
+      await refresh();
+    }
+    setBusy(false);
+  }
+
+  async function confirmMatch(match: Match) {
+    if (!supabase) return;
+    setBusy(true);
+    const { error: updateError } = await supabase
+      .from("matches")
+      .update({ helper_confirmed: true, status: "active" })
+      .eq("id", match.id);
+    if (updateError) setError(updateError.message);
+    else await refresh();
+    setBusy(false);
+  }
+
+  async function updateConsent(match: Match, field: "requester_contact_consent" | "helper_contact_consent", value: boolean) {
+    if (!supabase) return;
+    const requesterConsent = field === "requester_contact_consent" ? value : Boolean(match.requester_contact_consent);
+    const helperConsent = field === "helper_contact_consent" ? value : Boolean(match.helper_contact_consent);
+    const { error: updateError } = await supabase
+      .from("matches")
+      .update({
+        [field]: value,
+        contact_sharing_enabled: requesterConsent && helperConsent,
+      })
+      .eq("id", match.id);
+    if (updateError) setError(updateError.message);
+    else await refresh();
+  }
+
+  async function sendMessage(match: Match) {
+    if (!supabase || !profile) return;
+    const body = chatByMatch[match.id]?.trim();
+    if (!body) return;
+    const blockedReason = moderateMessage(body, Boolean(match.contact_sharing_enabled));
+    const { error: insertError } = await supabase.from("messages").insert({
+      match_id: match.id,
+      sender_id: profile.id,
+      body,
+      moderation_status: blockedReason ? "blocked" : "allowed",
+      blocked_reason: blockedReason,
+    });
+    if (insertError) setError(insertError.message);
+    else {
+      setChatByMatch((current) => ({ ...current, [match.id]: "" }));
+      await refresh();
+    }
+  }
+
+  if (!supabaseConfigReady) {
+    return (
+      <main className="min-h-screen bg-campus-mist p-4 text-slate-950 md:p-8">
+        <div className="mx-auto flex min-h-[80vh] max-w-3xl items-center">
+          <Card className="w-full p-8">
+            <div className="mb-5 inline-flex rounded-lg bg-amber-100 p-3 text-amber-800">
+              <AlertTriangle size={24} />
+            </div>
+            <h1 className="text-3xl font-black">CampusKind needs Supabase env vars</h1>
+            <p className="mt-3 text-slate-600">
+              Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` locally and in Vercel. The app is intentionally showing this setup screen instead of crashing or hardcoding keys.
+            </p>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  if (loading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-campus-mist text-slate-700">
+        <div className="flex items-center gap-3 rounded-lg bg-white px-5 py-4 shadow-sm">
+          <Loader2 className="animate-spin" size={20} /> Loading CampusKind
+        </div>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#d9ecff,transparent_35%),linear-gradient(135deg,#f8fafc,#fff7df)] p-4 text-slate-950 md:p-8">
+        <div className="mx-auto grid min-h-[88vh] max-w-6xl items-center gap-8 lg:grid-cols-[1fr_.85fr]">
+          <div>
+            <div className="mb-5 inline-flex rounded-lg bg-aggie-blue p-3 text-white shadow-lg">
+              <HeartHandshake size={30} />
+            </div>
+            <h1 className="max-w-2xl text-5xl font-black leading-tight tracking-tight md:text-6xl">CampusKind</h1>
+            <p className="mt-4 max-w-xl text-lg text-slate-600">
+              Verified UC Davis students can request small assists, offer help, coordinate safe public meetups, and keep contact sharing consent-based.
+            </p>
+            <div className="mt-6 flex flex-wrap gap-2">
+              <Pill tone="green">Supabase Auth</Pill>
+              <Pill tone="blue">Realtime assists</Pill>
+              <Pill tone="amber">Hackathon demo ready</Pill>
+            </div>
+          </div>
+          <Card className="p-6">
+            <h2 className="text-2xl font-black">Sign in</h2>
+            <p className="mt-1 text-sm text-slate-500">Use one of the demo accounts created in Supabase Auth.</p>
+            <form className="mt-6 space-y-4" onSubmit={signIn}>
+              <Field label="Email" value={email} onChange={setEmail} placeholder="tanmmay@ucdavis.edu" />
+              <Field label="Password" type="password" value={password} onChange={setPassword} placeholder="Demo password" />
+              {error && <div className="rounded-lg bg-rose-50 p-3 text-sm font-medium text-rose-800">{error}</div>}
+              <Button type="submit" disabled={busy} className="w-full">
+                {busy && <Loader2 className="animate-spin" size={16} />} Sign in
+              </Button>
+            </form>
+            <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {demoAccounts.map((account) => (
+                <Button
+                  key={account.email}
+                  variant="outline"
+                  onClick={() => {
+                    setEmail(account.email);
+                    setPassword(account.password);
+                  }}
+                >
+                  Quick-fill {account.label}
+                </Button>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  if (!profile) {
+    return (
+      <main className="min-h-screen bg-campus-mist p-4 text-slate-950 md:p-8">
+        <div className="mx-auto flex min-h-[80vh] max-w-3xl items-center">
+          <Card className="w-full p-8">
+            <div className="mb-4 inline-flex rounded-lg bg-rose-100 p-3 text-rose-700">
+              <AlertTriangle size={24} />
+            </div>
+            <h1 className="text-3xl font-black">Profile not found</h1>
+            <p className="mt-3 text-slate-600">
+              This Supabase Auth user exists, but there is no matching `public.profiles` row. Ask the admin to run `supabase/seed-profiles.sql` after creating the demo auth users.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <Button onClick={() => refresh(session.user.id)}>Refresh</Button>
+              <Button variant="outline" onClick={signOut}>Sign out</Button>
+            </div>
+          </Card>
+        </div>
+      </main>
+    );
+  }
+
+  const openRequests = requests.filter((request) => request.status === "open");
+  const myRequests = requests.filter((request) => request.requester_id === profile.id);
+  const myOffers = offers.filter((offer) => offer.helper_id === profile.id);
+  const offersReceived = offers.filter((offer) => myRequests.some((request) => request.id === offer.request_id));
+  const pendingHelperMatches = matches.filter((match) => match.helper_id === profile.id && match.status === "pending_helper_confirmation");
+  const blockedMessages = messages.filter((message) => message.moderation_status === "blocked");
+
+  return (
+    <main className="min-h-screen bg-campus-mist p-4 text-slate-950 md:p-8">
+      <div className="mx-auto max-w-7xl">
+        <header className="mb-6 flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-center gap-4">
+            <div className="grid h-12 w-12 place-items-center rounded-lg bg-aggie-blue text-white">
+              <HeartHandshake size={26} />
+            </div>
+            <div>
+              <h1 className="text-2xl font-black tracking-tight">CampusKind / AggieHelp</h1>
+              <p className="text-sm text-slate-500">Real Supabase login, realtime assists, public SafeMeet coordination.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill tone="blue"><UserCheck size={13} /> {profile.name} · {prettyRole(profile.role)}</Pill>
+            <Button variant="outline" onClick={() => refresh()}><RefreshCw size={16} /> Refresh</Button>
+            <Button variant="ghost" onClick={signOut}><LogOut size={16} /> Sign out</Button>
+          </div>
+        </header>
+
+        {error && <div className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">{error}</div>}
+
+        <section className="mb-6 grid gap-4 md:grid-cols-4">
+          {([
+            ["Open requests", openRequests.length, HeartHandshake],
+            ["Offers", offers.length, Users],
+            ["Active matches", activeMatches.length, CheckCircle2],
+            ["Safe spots", safeSpots.length, MapPin],
+          ] as Array<[string, number, React.ElementType]>).map(([label, value, Icon]) => (
+            <Card key={String(label)} className="p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-slate-500">{String(label)}</p>
+                  <p className="text-3xl font-black">{String(value)}</p>
+                </div>
+                <div className="rounded-lg bg-slate-100 p-3 text-aggie-blue"><Icon size={22} /></div>
+              </div>
+            </Card>
+          ))}
+        </section>
+
+        {isRequester(profile) && (
+          <div className="grid gap-6 lg:grid-cols-[.95fr_1.05fr]">
+            <Card className="p-5">
+              <SectionHeader icon={Sparkles} title="Create Request" subtitle="Local rule-based safety classification runs before insert." />
+              <textarea
+                className="min-h-36 w-full rounded-lg border border-slate-200 p-4 outline-none ring-aggie-gold/30 focus:border-aggie-blue focus:ring-4"
+                value={requestText}
+                onChange={(event) => setRequestText(event.target.value)}
+                placeholder="Describe the small assist you need..."
+              />
+              <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <Pill tone={classification.ok ? "green" : "red"}>{classification.ok ? "Safe" : "Blocked"}</Pill>
+                  <Pill tone="blue">{classification.category}</Pill>
+                  <Pill>{classification.fromArea} to {classification.toArea}</Pill>
+                </div>
+                <p className={classification.ok ? "text-slate-600" : "font-medium text-rose-800"}>{classification.reason}</p>
+              </div>
+              <Button className="mt-4 w-full" onClick={createRequest} disabled={busy || !classification.ok || !requestText.trim()}>
+                Create request
+              </Button>
+            </Card>
+
+            <div className="space-y-6">
+              <RequestList title="My Requests" requests={myRequests} profileById={profileById} />
+              <Card className="p-5">
+                <SectionHeader icon={HeartHandshake} title="Offers Received" subtitle="Accept one to create a pending match." />
+                <div className="space-y-3">
+                  {offersReceived.length === 0 && <EmptyState>No offers yet. Helpers will see open requests in realtime.</EmptyState>}
+                  {offersReceived.map((offer) => {
+                    const helper = profileById.get(offer.helper_id);
+                    const matched = matches.some((match) => match.offer_id === offer.id);
+                    return (
+                      <div key={offer.id} className="rounded-lg border border-slate-200 p-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="font-bold">{helper?.name || "Helper"}</p>
+                            <p className="mt-1 text-sm text-slate-600">{offer.description}</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              <Pill>{offer.category}</Pill>
+                              {offer.has_car && <Pill tone="green">Has car</Pill>}
+                            </div>
+                          </div>
+                          <Button disabled={busy || matched} onClick={() => acceptOffer(offer)}>
+                            {matched ? "Match created" : "Accept offer"}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+              <MatchWorkspace matches={myMatches} {...{ profile, profiles, profileById, requestById, offerById, messages, safeSpots, chatByMatch, setChatByMatch, updateConsent, sendMessage }} />
+            </div>
+          </div>
+        )}
+
+        {isHelper(profile) && (
+          <div className="grid gap-6 lg:grid-cols-[1.05fr_.95fr]">
+            <Card className="p-5">
+              <SectionHeader icon={HeartHandshake} title="Open Requests" subtitle="Offer help without bypassing the requester acceptance step." />
+              <div className="space-y-4">
+                {openRequests.length === 0 && <EmptyState>No open requests yet.</EmptyState>}
+                {openRequests.map((request) => (
+                  <div key={request.id} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="font-bold">{request.title}</p>
+                        <p className="mt-1 text-sm text-slate-600">{request.description}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Pill tone="blue">{request.category}</Pill>
+                          <Pill>{request.from_area} to {request.to_area}</Pill>
+                          {request.requires_car && <Pill tone="amber">Car helpful</Pill>}
+                        </div>
+                      </div>
+                      <div className="w-full lg:w-80">
+                        <textarea
+                          className="min-h-20 w-full rounded-lg border border-slate-200 p-3 text-sm outline-none focus:border-aggie-blue"
+                          value={offerTextByRequest[request.id] || ""}
+                          onChange={(event) => setOfferTextByRequest((current) => ({ ...current, [request.id]: event.target.value }))}
+                          placeholder="Optional offer note..."
+                        />
+                        <Button className="mt-2 w-full" onClick={() => offerHelp(request)} disabled={busy || request.requester_id === profile.id}>
+                          Offer Help
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <div className="space-y-6">
+              <OfferList title="My Offers" offers={myOffers} requestById={requestById} />
+              <Card className="p-5">
+                <SectionHeader icon={CheckCircle2} title="Pending Matches To Confirm" subtitle="Requester accepted. Helper confirms to activate." />
+                <div className="space-y-3">
+                  {pendingHelperMatches.length === 0 && <EmptyState>No pending confirmations.</EmptyState>}
+                  {pendingHelperMatches.map((match) => (
+                    <div key={match.id} className="rounded-lg border border-slate-200 p-4">
+                      <p className="font-bold">{requestById.get(match.request_id)?.title || "Assist match"}</p>
+                      <p className="mt-1 text-sm text-slate-600">{requestById.get(match.request_id)?.description}</p>
+                      <Button className="mt-3" onClick={() => confirmMatch(match)} disabled={busy}>Confirm Match</Button>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+              <MatchWorkspace matches={myMatches} {...{ profile, profiles, profileById, requestById, offerById, messages, safeSpots, chatByMatch, setChatByMatch, updateConsent, sendMessage }} />
+            </div>
+          </div>
+        )}
+
+        {isAdmin(profile) && (
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Card className="p-5">
+              <SectionHeader icon={ShieldCheck} title="Admin Dashboard" subtitle="Moderation, reports, and complete demo data." />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Metric label="Profiles" value={profiles.length} />
+                <Metric label="Reports" value={reports.length} />
+                <Metric label="Blocked messages" value={blockedMessages.length} />
+                <Metric label="Matches" value={matches.length} />
+              </div>
+            </Card>
+            <Card className="p-5">
+              <SectionHeader icon={AlertTriangle} title="Blocked Messages" subtitle="Messages are stored with moderation status for review." />
+              <div className="space-y-3">
+                {blockedMessages.length === 0 && <EmptyState>No blocked messages yet.</EmptyState>}
+                {blockedMessages.map((message) => (
+                  <div key={message.id} className="rounded-lg border border-rose-200 bg-rose-50 p-4">
+                    <p className="text-sm font-semibold text-rose-900">{message.blocked_reason}</p>
+                    <p className="mt-2 text-sm text-slate-700">{message.body}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <RequestList title="All Requests" requests={requests} profileById={profileById} />
+            <OfferList title="All Offers" offers={offers} requestById={requestById} />
+            <Card className="p-5">
+              <SectionHeader icon={Users} title="User Profiles" subtitle="Roles are loaded from public.profiles." />
+              <div className="space-y-3">
+                {profiles.map((item) => (
+                  <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 p-4">
+                    <div>
+                      <p className="font-bold">{item.name}</p>
+                      <p className="text-sm text-slate-500">{item.email}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Pill tone="blue">{prettyRole(item.role)}</Pill>
+                      <Pill>{item.campus_area || "Campus"}</Pill>
+                      <Pill tone="green">{item.reliability_score || 100}% reliable</Pill>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+            <Card className="p-5">
+              <SectionHeader icon={Flag} title="Reports" subtitle="Authenticated users can insert; admins can select all." />
+              <div className="space-y-3">
+                {reports.length === 0 && <EmptyState>No reports yet.</EmptyState>}
+                {reports.map((report) => (
+                  <div key={report.id} className="rounded-lg border border-slate-200 p-4">
+                    <div className="flex justify-between gap-3">
+                      <p className="font-bold">{report.reason || "Report"}</p>
+                      <Pill tone={report.status === "open" ? "amber" : "green"}>{report.status}</Pill>
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{report.description || "No description"}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
+function SectionHeader({ icon: Icon, title, subtitle }: { icon: React.ElementType; title: string; subtitle?: string }) {
+  return (
+    <div className="mb-4 flex items-start gap-3">
+      <div className="rounded-lg bg-aggie-blue p-2 text-white"><Icon size={18} /></div>
       <div>
-        <h2 className="text-xl font-bold text-slate-950">{title}</h2>
+        <h2 className="text-lg font-black">{title}</h2>
         {subtitle && <p className="text-sm text-slate-500">{subtitle}</p>}
       </div>
     </div>
   );
 }
 
-function DemoUserSwitcher({ currentUser, setCurrentUser }: { currentUser: User; setCurrentUser: (u: User) => void }) {
+function Metric({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2">
-      <span className="text-sm text-slate-500">Viewing as:</span>
-      <select
-        className="rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none"
-        value={currentUser.id}
-        onChange={(e) => {
-          const nextUser = demoUsers.find((u) => u.id === e.target.value);
-          if (nextUser) setCurrentUser(nextUser);
-        }}
-      >
-        {demoUsers.map((user) => (
-          <option key={user.id} value={user.id}>
-            {user.name} — {user.role}
-          </option>
-        ))}
-      </select>
+    <div className="rounded-lg bg-slate-50 p-4">
+      <p className="text-sm text-slate-500">{label}</p>
+      <p className="text-3xl font-black">{value}</p>
     </div>
   );
 }
 
-function UserCard({ user }: { user: User }) {
+function RequestList({ title, requests, profileById }: { title: string; requests: AssistRequest[]; profileById: Map<string, Profile> }) {
   return (
-    <Card>
-      <div className="p-5">
-        <div className="flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white">
-            {user.name[0]}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-bold text-slate-950">{user.name}</h3>
-              <UserCheck size={16} className="text-emerald-600" />
+    <Card className="p-5">
+      <SectionHeader icon={Clock} title={title} />
+      <div className="space-y-3">
+        {requests.length === 0 && <EmptyState>No requests to show.</EmptyState>}
+        {requests.map((request) => (
+          <div key={request.id} className="rounded-lg border border-slate-200 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-bold">{request.title}</p>
+                <p className="mt-1 text-sm text-slate-600">{request.description}</p>
+                <p className="mt-2 text-xs text-slate-500">Requester: {profileById.get(request.requester_id)?.name || "Unknown"}</p>
+              </div>
+              <Pill tone={request.status === "open" ? "green" : "slate"}>{request.status}</Pill>
             </div>
-            <p className="text-sm text-slate-500">{user.area} • {user.assists} assists • {user.reliability}% reliable</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Pill tone="blue">{request.category}</Pill>
+              <Pill>{request.from_area} to {request.to_area}</Pill>
+              <Pill>{request.effort_level}</Pill>
+            </div>
           </div>
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          {user.badges.map((b) => <Pill key={b} tone="blue">{b}</Pill>)}
-        </div>
+        ))}
       </div>
     </Card>
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function OfferList({ title, offers, requestById }: { title: string; offers: AssistOffer[]; requestById: Map<string, AssistRequest> }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className="font-semibold">{value}</span>
-    </div>
-  );
-}
-
-function ConsentToggle({ name, checked, onChange }: { name: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <div className="rounded-3xl border border-slate-200 p-5">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h3 className="font-bold">{name}</h3>
-          <p className="text-sm text-slate-500">Allow contact info sharing for this assist?</p>
-        </div>
-        <Button variant={checked ? "solid" : "outline"} onClick={() => onChange(!checked)}>
-          {checked ? "Consented" : "Keep private"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-export default function CampusKindMVP() {
-  const [screen, setScreen] = useState("home");
-  const [currentUser, setCurrentUser] = useState<User>(users.tanmmay);
-  const [agreement, setAgreement] = useState(false);
-  const [requestText, setRequestText] = useState(seededRequests[0].text);
-  const [activeRequest, setActiveRequest] = useState<AssistRequest>(seededRequests[0]);
-  const [contactA, setContactA] = useState(false);
-  const [contactB, setContactB] = useState(false);
-  const [chatInput, setChatInput] = useState("Let's meet at Trader Joe's Main Entrance around 6 PM.");
-  const [chatMessages, setChatMessages] = useState([
-    { from: "CampusKind", text: "SafeMeet suggested Trader Joe’s Main Entrance as the public pickup spot and Tercero Services Center as the public drop-off spot.", system: true },
-    { from: "Maya", text: "Hi! I’m still going at 6. I can help carry light groceries.", system: false },
-  ]);
-  const [blockedNotice, setBlockedNotice] = useState("");
-
-  const classification = useMemo(() => classifyRequest(requestText), [requestText]);
-  const contactSharingEnabled = contactA && contactB;
-  const bestMatch = useMemo(() => seededOffers.find((o) => o.category === activeRequest.category) || seededOffers[0], [activeRequest]);
-  const relevantSafeSpots = safeSpots.filter((s) => [activeRequest.from, activeRequest.to, "Memorial Union"].includes(s.area)).slice(0, 3);
-
-  function approveRequest() {
-    if (classification.status !== "Safe") return;
-    setActiveRequest({
-      id: "req-new",
-      user: users.tanmmay,
-      text: classification.cleaned || requestText,
-      category: classification.category,
-      from: requestText.toLowerCase().includes("trader") ? "Trader Joe’s" : "Campus",
-      to: requestText.toLowerCase().includes("tercero") ? "Tercero" : "Campus",
-      time: "Today",
-      effort: classification.effort || "Low",
-      support: classification.support || "None specified",
-      car: classification.car || "No",
-      safety: "Safe",
-      status: "Open",
-    });
-    setScreen("matches");
-  }
-
-  function sendMessage() {
-    const message = chatInput.trim();
-    if (!message) return;
-    if (!contactSharingEnabled && contactInfoDetected(message)) {
-      setBlockedNotice("Message blocked: Contact sharing is disabled for this assist. Please coordinate inside CampusKind.");
-      return;
-    }
-    if (privateLocationDetected(message)) {
-      setBlockedNotice("Message blocked: CampusKind recommends public meetup spots instead of private residences or dorm rooms.");
-      return;
-    }
-    setChatMessages([...chatMessages, { from: currentUser.name, text: message, system: false }]);
-    setChatInput("");
-    setBlockedNotice("");
-  }
-
-  const nav = [
-    ["home", "Home"],
-    ["onboarding", "Onboarding"],
-    ["request", "Request"],
-    ["matches", "Match"],
-    ["consent", "ConsentShare"],
-    ["safemeet", "SafeMeet"],
-    ["chat", "Chat"],
-    ["admin", "Admin"],
-  ];
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-4 text-slate-950 md:p-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-8 flex flex-col gap-4 rounded-3xl bg-white/80 p-5 shadow-sm ring-1 ring-slate-200 backdrop-blur lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-3xl bg-slate-950 text-white shadow-lg">
-              <HeartHandshake size={28} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-black tracking-tight">CampusKind</h1>
-              <p className="text-sm text-slate-500">Small assists. Stronger campus.</p>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-            <DemoUserSwitcher currentUser={currentUser} setCurrentUser={setCurrentUser} />
-            <div className="flex flex-wrap gap-2">
-              {nav.map(([key, label]) => (
-                <Button key={key} variant={screen === key ? "solid" : "outline"} onClick={() => setScreen(key)}>{label}</Button>
-              ))}
-            </div>
-          </div>
-        </header>
-
-        {screen === "home" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-[1.15fr_.85fr]">
-            <Card>
-              <div className="p-8">
-                <div className="mb-6 flex flex-wrap gap-2">
-                  <Pill tone="good">Verified campus mutual aid</Pill>
-                  <Pill tone="blue">No payments</Pill>
-                  <Pill tone="purple">AI safety checks</Pill>
-                </div>
-                <h2 className="max-w-3xl text-4xl font-black leading-tight tracking-tight md:text-6xl">
-                  A safer way for students to ask for small everyday help.
-                </h2>
-                <p className="mt-5 max-w-2xl text-lg text-slate-600">
-                  CampusKind connects verified students who need small, voluntary assists with peers who are already nearby or already going that way.
-                </p>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <Button className="px-6 py-3" onClick={() => setScreen("request")}>Request an Assist</Button>
-                  <Button className="px-6 py-3" variant="outline" onClick={() => setScreen("matches")}>View Demo Match</Button>
-                </div>
+    <Card className="p-5">
+      <SectionHeader icon={HeartHandshake} title={title} />
+      <div className="space-y-3">
+        {offers.length === 0 && <EmptyState>No offers to show.</EmptyState>}
+        {offers.map((offer) => (
+          <div key={offer.id} className="rounded-lg border border-slate-200 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="font-bold">{requestById.get(offer.request_id)?.title || "Offer"}</p>
+                <p className="mt-1 text-sm text-slate-600">{offer.description}</p>
               </div>
-            </Card>
-            <div className="grid gap-4">
-              {[
-                ["43", "assists completed this week", Users],
-                ["18", "grocery/carrying assists", HeartHandshake],
-                ["12", "walking buddy assists", ShieldCheck],
-                ["9", "accessibility-support assists", Accessibility],
-              ].map(([num, label, Icon]) => (
-                <Card key={String(label)}>
-                  <div className="flex items-center gap-4 p-5">
-                    <div className="rounded-2xl bg-slate-100 p-3"><Icon size={24} /></div>
-                    <div><div className="text-3xl font-black">{String(num)}</div><div className="text-sm text-slate-500">{String(label)}</div></div>
-                  </div>
-                </Card>
-              ))}
+              <Pill tone={offer.status === "open" ? "green" : "slate"}>{offer.status}</Pill>
             </div>
-          </motion.div>
-        )}
-
-        {screen === "onboarding" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-2">
-            <Card><div className="p-6"><SectionTitle icon={UserCheck} title="Campus verification" subtitle="Keep the network campus-only and trusted." />
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-slate-200 p-4"><p className="font-semibold">Campus email</p><p className="text-sm text-slate-500">tanmmay@ucdavis.edu</p><div className="mt-3"><Pill tone="good">Verified UC Davis Student</Pill></div></div>
-                <div className="rounded-2xl border border-slate-200 p-4"><p className="font-semibold">Optional higher verification</p><p className="text-sm text-slate-500">Student ID + selfie check. Private data is never shown publicly.</p><div className="mt-3 flex gap-2"><Pill tone="blue">ID Verified</Pill><Pill tone="blue">Photo Verified</Pill></div></div>
-              </div></div></Card>
-            <Card><div className="p-6"><SectionTitle icon={ShieldCheck} title="Community Safety Agreement" subtitle="Required before using CampusKind." />
-              <div className="space-y-3 text-sm text-slate-600">
-                {["Small, voluntary, non-monetary assists only.", "No emergencies, medical care, personal care, dangerous tasks, or paid labor.", "Meet in public places and avoid private residences or dorm rooms.", "Contact info can only be shared when both users consent.", "No alcohol, drugs, weapons, cash loans, or illegal items.", "Cancel, report, or block at any time."].map((line) => (
-                  <label key={line} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3"><input type="checkbox" checked={agreement} onChange={(e) => setAgreement(e.target.checked)} /><span>{line}</span></label>
-                ))}
-              </div><Button className="mt-5 w-full" disabled={!agreement} onClick={() => setScreen("home")}>I agree and continue</Button></div></Card>
-          </motion.div>
-        )}
-
-        {screen === "request" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-[1fr_.9fr]">
-            <Card><div className="p-6"><SectionTitle icon={Sparkles} title="Request an Assist" subtitle="Type naturally. CampusKind cleans, classifies, and safety-checks the request." />
-              <textarea className="min-h-40 w-full rounded-3xl border border-slate-200 bg-white p-4 text-base outline-none ring-slate-900 focus:ring-2" value={requestText} onChange={(e) => setRequestText(e.target.value)} />
-              <div className="mt-4 flex flex-wrap gap-3"><Button onClick={approveRequest} disabled={classification.status !== "Safe"}>Approve and find matches</Button><Button variant="outline" onClick={() => setRequestText("Can someone pick up alcohol and bring it to my dorm?")}>Try blocked example</Button><Button variant="outline" onClick={() => setRequestText("Text me at 530-123-4567 so we can coordinate")}>Try contact example</Button></div>
-            </div></Card>
-            <Card><div className="p-6"><SectionTitle icon={ShieldCheck} title="AI safety/classification" subtitle="Demo classifier output." />
-              <div className="space-y-3"><div className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><span className="font-semibold">Safety status</span><Pill tone={classification.status === "Safe" ? "good" : classification.status === "Blocked" ? "danger" : "warn"}>{classification.status}</Pill></div>
-                <InfoRow label="Category" value={classification.category} /><InfoRow label="Effort" value={classification.effort || "—"} /><InfoRow label="Support need" value={classification.support || "—"} /><InfoRow label="Car" value={classification.car || "—"} />
-                <div className="rounded-2xl border border-slate-200 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Reason</p><p className="mt-1 text-sm text-slate-700">{classification.reason}</p></div>
-              </div></div></Card>
-          </motion.div>
-        )}
-
-        {screen === "matches" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-[.85fr_1fr]">
-            <div className="space-y-6"><UserCard user={activeRequest.user} /><Card><div className="p-5"><p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Open request</p><h3 className="text-lg font-bold">{activeRequest.category}</h3><p className="mt-2 text-sm text-slate-600">{activeRequest.text}</p><div className="mt-4 flex flex-wrap gap-2"><Pill tone="blue"><Clock size={12} className="mr-1" />{activeRequest.time}</Pill><Pill tone="purple"><MapPin size={12} className="mr-1" />{activeRequest.from} → {activeRequest.to}</Pill><Pill tone="good"><Accessibility size={12} className="mr-1" />{activeRequest.support}</Pill></div></div></Card></div>
-            <Card><div className="p-6"><SectionTitle icon={HeartHandshake} title="Best match" subtitle="Already Going matching reduces burden and improves reliability." /><UserCard user={bestMatch.user} /><div className="mt-5 rounded-3xl bg-emerald-50 p-5"><div className="mb-3 flex items-center gap-2 font-bold text-emerald-800"><CheckCircle2 size={20} /> Match score: 92%</div><ul className="space-y-2 text-sm text-emerald-900"><li>• Already going toward {activeRequest.from}</li><li>• Returning near {activeRequest.to}</li><li>• Available in your time window</li><li>• Can handle {activeRequest.effort.toLowerCase()} effort</li><li>• Verified campus account with strong reliability</li></ul></div><div className="mt-5 flex gap-3"><Button onClick={() => setScreen("consent")}>Accept match</Button><Button variant="outline">View other helpers</Button></div></div></Card>
-          </motion.div>
-        )}
-
-        {screen === "consent" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-2">
-            <Card><div className="p-6"><SectionTitle icon={Lock} title="ConsentShare" subtitle="Contact info sharing only turns on when both users explicitly opt in." /><div className="grid gap-4"><ConsentToggle name="Tanmmay" checked={contactA} onChange={setContactA} /><ConsentToggle name="Maya" checked={contactB} onChange={setContactB} /></div><div className={cn("mt-5 rounded-3xl p-5", contactSharingEnabled ? "bg-emerald-50" : "bg-amber-50")}><p className={cn("font-bold", contactSharingEnabled ? "text-emerald-800" : "text-amber-800")}>{contactSharingEnabled ? "Contact sharing enabled for this assist." : "Contact sharing is off for this assist."}</p><p className="mt-1 text-sm text-slate-600">{contactSharingEnabled ? "Users may share contact info, but CampusKind still recommends in-app planning and public meetups." : "Chat still works, but AI will block phone numbers, emails, social handles, and private addresses."}</p></div><Button className="mt-5" onClick={() => setScreen("safemeet")}>Continue to SafeMeet</Button></div></Card>
-            <Card><div className="p-6"><SectionTitle icon={ShieldCheck} title="Safety checklist" subtitle="Both users accept this before chat opens." /><div className="space-y-3">{["Meet in public first.", "Keep exact dorm room/private address hidden.", "Do not exchange money.", "No alcohol, drugs, weapons, or illegal items.", "No medical or personal care.", "Cancel if uncomfortable."].map((item) => (<div key={item} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3 text-sm"><CheckCircle2 size={18} className="text-emerald-600" /> {item}</div>))}</div></div></Card>
-          </motion.div>
-        )}
-
-        {screen === "safemeet" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-            <Card><div className="p-6"><SectionTitle icon={MapPin} title="SafeMeet" subtitle="Neutral public meetup spots based on both users’ general areas." /><div className="grid gap-4 md:grid-cols-3">{relevantSafeSpots.map((spot, idx) => (<Card key={spot.name} className={idx === 0 ? "border-slate-900" : ""}><div className="p-5"><div className="mb-3 flex items-center justify-between"><Pill tone={idx === 0 ? "good" : "blue"}>{idx === 0 ? "Recommended" : "Backup"}</Pill><MapPin size={18} className="text-slate-500" /></div><h3 className="font-bold">{spot.name}</h3><p className="mt-1 text-sm text-slate-500">Best for {spot.bestFor}</p><div className="mt-4 flex flex-wrap gap-2">{spot.tags.map((t) => <Pill key={t}>{t}</Pill>)}</div></div></Card>))}</div><div className="mt-6 rounded-3xl bg-rose-50 p-5 text-rose-900"><div className="flex items-center gap-2 font-bold"><AlertTriangle size={20} /> Private meetup warning</div><p className="mt-1 text-sm">CampusKind does not recommend meeting inside private residences, apartments, or dorm rooms. Choose a public meetup spot instead.</p></div><Button className="mt-5" onClick={() => setScreen("chat")}>Open in-app chat</Button></div></Card>
-          </motion.div>
-        )}
-
-        {screen === "chat" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-[1fr_.75fr]">
-            <Card><div className="p-6"><SectionTitle icon={MessageCircle} title="In-app assist chat" subtitle="No open DMs. Chat is tied to this confirmed assist." /><div className="mb-4 rounded-2xl bg-slate-50 p-3 text-sm">Contact sharing: {contactSharingEnabled ? <Pill tone="good">Enabled by mutual consent</Pill> : <Pill tone="warn">Disabled — AI blocks contact info</Pill>}</div><div className="h-80 space-y-3 overflow-y-auto rounded-3xl border border-slate-200 bg-white p-4">{chatMessages.map((m, idx) => (<div key={idx} className={cn("rounded-2xl p-3 text-sm", m.system ? "bg-blue-50 text-blue-900" : m.from === currentUser.name ? "ml-auto max-w-[80%] bg-slate-900 text-white" : "max-w-[80%] bg-slate-100 text-slate-800")}><p className="mb-1 text-xs opacity-70">{m.from}</p><p>{m.text}</p></div>))}</div>{blockedNotice && <div className="mt-3 rounded-2xl bg-rose-50 p-3 text-sm font-medium text-rose-800">{blockedNotice}</div>}<div className="mt-4 flex flex-wrap gap-2">{["Does 6 PM still work?", "Let’s meet at the suggested public spot.", "I’m here.", "I need to cancel.", "Thanks for helping!"].map((q) => (<Button key={q} variant="outline" onClick={() => setChatInput(q)}>{q}</Button>))}</div><div className="mt-4 flex gap-2"><input className="flex-1 rounded-2xl border border-slate-200 px-4 outline-none ring-slate-900 focus:ring-2" value={chatInput} onChange={(e) => setChatInput(e.target.value)} /><Button onClick={sendMessage}><Send size={18} /></Button></div></div></Card>
-            <div className="space-y-6"><Card><div className="p-5"><h3 className="mb-3 font-bold">Assist lifecycle</h3><div className="grid gap-2"><Button><Clock size={16} className="mr-2 inline" />Start Assist</Button><Button variant="outline"><CheckCircle2 size={16} className="mr-2 inline" />Complete Assist</Button><Button variant="outline"><Share2 size={16} className="mr-2 inline" />Share with a Friend</Button><Button variant="outline"><Flag size={16} className="mr-2 inline" />Report Issue</Button></div></div></Card><Card><div className="p-5"><h3 className="mb-3 font-bold">Friend check-in preview</h3><div className="rounded-2xl bg-slate-900 p-4 text-sm text-white">Tanmmay is meeting Maya for a grocery assist near Trader Joe’s from 6:00–6:30 PM.</div></div></Card></div>
-          </motion.div>
-        )}
-
-        {screen === "admin" && (
-          <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="grid gap-6 lg:grid-cols-[.85fr_1fr]">
-            <Card><div className="p-6"><SectionTitle icon={Star} title="Impact dashboard" subtitle="Shows judges the community value." /><div className="grid gap-3">{[["128", "total assists completed"], ["43", "grocery/carrying assists"], ["31", "walking buddy assists"], ["18", "accessibility-support assists"], ["22", "students helped without cars"]].map(([n, label]) => (<div key={label} className="flex items-center justify-between rounded-2xl bg-slate-50 p-4"><span className="text-sm text-slate-600">{label}</span><span className="text-2xl font-black">{n}</span></div>))}</div></div></Card>
-            <Card><div className="p-6"><SectionTitle icon={AlertTriangle} title="Safety moderation dashboard" subtitle="AI flags unsafe requests and contact-sharing violations." /><div className="space-y-3">{flaggedExamples.map((f) => (<div key={f.text} className="rounded-2xl border border-slate-200 p-4"><div className="mb-2 flex items-center justify-between gap-3"><p className="font-medium">“{f.text}”</p><Pill tone={f.status === "Blocked" ? "danger" : "warn"}>{f.status}</Pill></div><p className="text-sm text-slate-500">Reason: {f.reason}</p></div>))}</div></div></Card>
-          </motion.div>
-        )}
+          </div>
+        ))}
       </div>
-    </div>
+    </Card>
+  );
+}
+
+function MatchWorkspace({
+  matches,
+  profile,
+  profileById,
+  requestById,
+  offerById,
+  messages,
+  safeSpots,
+  chatByMatch,
+  setChatByMatch,
+  updateConsent,
+  sendMessage,
+}: {
+  matches: Match[];
+  profile: Profile;
+  profiles: Profile[];
+  profileById: Map<string, Profile>;
+  requestById: Map<string, AssistRequest>;
+  offerById: Map<string, AssistOffer>;
+  messages: Message[];
+  safeSpots: SafeSpot[];
+  chatByMatch: Record<string, string>;
+  setChatByMatch: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  updateConsent: (match: Match, field: "requester_contact_consent" | "helper_contact_consent", value: boolean) => Promise<void>;
+  sendMessage: (match: Match) => Promise<void>;
+}) {
+  return (
+    <Card className="p-5">
+      <SectionHeader icon={MessageCircle} title="Active Matches" subtitle="ConsentShare, SafeMeet ETA, and realtime chat." />
+      <div className="space-y-5">
+        {matches.length === 0 && <EmptyState>No matches yet.</EmptyState>}
+        {matches.map((match) => {
+          const request = requestById.get(match.request_id);
+          const offer = offerById.get(match.offer_id);
+          const requester = profileById.get(match.requester_id);
+          const helper = profileById.get(match.helper_id);
+          const matchMessages = messages.filter((message) => message.match_id === match.id);
+          const isActive = match.status === "active";
+          const requesterArea = requester?.campus_area || request?.to_area || "Campus";
+          const helperArea = helper?.campus_area || offer?.from_area || "Campus";
+          const suggestedSpots = safeSpots
+            .map((spot) => ({
+              spot,
+              total: walkMinutes(requesterArea, spot) + walkMinutes(helperArea, spot),
+            }))
+            .sort((a, b) => a.total - b.total)
+            .slice(0, 3);
+
+          return (
+            <div key={match.id} className="rounded-lg border border-slate-200 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="font-bold">{request?.title || "Assist match"}</p>
+                  <p className="mt-1 text-sm text-slate-600">{requester?.name} and {helper?.name}</p>
+                </div>
+                <Pill tone={isActive ? "green" : "amber"}>{match.status}</Pill>
+              </div>
+
+              {isActive && (
+                <>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <ConsentButton
+                      label={`${requester?.name || "Requester"} contact consent`}
+                      checked={Boolean(match.requester_contact_consent)}
+                      disabled={profile.id !== match.requester_id}
+                      onClick={() => updateConsent(match, "requester_contact_consent", !match.requester_contact_consent)}
+                    />
+                    <ConsentButton
+                      label={`${helper?.name || "Helper"} contact consent`}
+                      checked={Boolean(match.helper_contact_consent)}
+                      disabled={profile.id !== match.helper_id}
+                      onClick={() => updateConsent(match, "helper_contact_consent", !match.helper_contact_consent)}
+                    />
+                  </div>
+                  <div className={cn("mt-3 rounded-lg p-3 text-sm font-medium", match.contact_sharing_enabled ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800")}>
+                    {match.contact_sharing_enabled ? "Contact sharing enabled by mutual consent." : "Contact sharing is off. Phone numbers, emails, handles, and contact prompts are blocked."}
+                  </div>
+
+                  <div className="mt-4">
+                    <p className="mb-2 text-sm font-bold">SafeMeet ETA</p>
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {suggestedSpots.map(({ spot }, index) => (
+                        <div key={spot.id} className="rounded-lg bg-slate-50 p-3">
+                          <div className="mb-2 flex items-center justify-between">
+                            <Pill tone={index === 0 ? "green" : "blue"}>{index === 0 ? "Suggested" : "Backup"}</Pill>
+                            <MapPin size={16} className="text-slate-500" />
+                          </div>
+                          <p className="font-bold">{spot.name}</p>
+                          <p className="mt-1 text-xs text-slate-500">{spot.description || "Public campus meetup spot."}</p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {(spot.tags || []).map((tag) => <Pill key={tag}>{tag}</Pill>)}
+                          </div>
+                          <p className="mt-2 text-xs text-slate-600">Requester: {walkMinutes(requesterArea, spot)} min · Helper: {walkMinutes(helperArea, spot)} min</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-white">
+                    <div className="max-h-72 space-y-2 overflow-y-auto p-3">
+                      {matchMessages.length === 0 && <EmptyState>No messages yet.</EmptyState>}
+                      {matchMessages.map((message) => {
+                        const mine = message.sender_id === profile.id;
+                        const blocked = message.moderation_status === "blocked";
+                        return (
+                          <div
+                            key={message.id}
+                            className={cn(
+                              "max-w-[88%] rounded-lg p-3 text-sm",
+                              mine && !blocked && "ml-auto bg-aggie-blue text-white",
+                              !mine && !blocked && "bg-slate-100 text-slate-800",
+                              blocked && "border border-rose-200 bg-rose-50 text-rose-900",
+                            )}
+                          >
+                            <p className="mb-1 text-xs opacity-70">{profileById.get(message.sender_id)?.name || "User"}</p>
+                            <p>{message.body}</p>
+                            {blocked && <p className="mt-2 text-xs font-bold">{message.blocked_reason}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <div className="flex gap-2 border-t border-slate-200 p-3">
+                      <input
+                        className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-aggie-blue"
+                        value={chatByMatch[match.id] || ""}
+                        onChange={(event) => setChatByMatch((current) => ({ ...current, [match.id]: event.target.value }))}
+                        placeholder="Send a safe in-app message..."
+                      />
+                      <Button onClick={() => sendMessage(match)}><Send size={16} /></Button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+function ConsentButton({ label, checked, disabled, onClick }: { label: string; checked: boolean; disabled: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={cn(
+        "rounded-lg border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60",
+        checked ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50 hover:bg-white",
+      )}
+    >
+      <p className="font-bold">{label}</p>
+      <p className={cn("mt-1 text-sm", checked ? "text-emerald-800" : "text-slate-500")}>{checked ? "Consented" : disabled ? "Waiting for other user" : "Keep private"}</p>
+    </button>
   );
 }
