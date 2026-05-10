@@ -1,6 +1,6 @@
-# CampusKind / AggieHelp MVP
+# AggieHelp MVP
 
-CampusKind is a UC Davis mutual-aid hackathon app for small, voluntary assists. It uses Supabase Auth email/password login, profile roles from `public.profiles`, realtime request/offer/match/chat updates, ConsentShare contact consent, SafeMeet public meetup suggestions, and an admin moderation dashboard.
+AggieHelp is a UC Davis mutual-aid hackathon app for small, safe assists. The frontend runs on Next.js and Vercel, while Supabase stores persistent app data for profiles, requests, offers, matches, messages, safe spots, and reports.
 
 ## Run Locally
 
@@ -45,20 +45,29 @@ Add the same variables in Vercel under Project Settings -> Environment Variables
 
 Do not add service-role keys to the frontend. This app only uses `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 
+## Privacy And Moderation
+
+Blocked messages are privacy-filtered:
+- Sender sees their blocked content and the safety reason.
+- Receiver sees only a generic AggieHelp safety notice.
+- Admin sees full moderation logs, including blocked content and reason.
+
+Precise device location is only used in the current browser session to calculate SafeMeet ETA. AggieHelp does not store live device location in Supabase.
+
 ## Demo Flow
 
-1. Open the deployed Vercel URL. It should show the login page.
-2. Quick-fill Tanmmay and sign in.
-3. Create a safe request or use the seeded grocery request.
-4. Sign out, quick-fill Maya or Alex, and offer help on an open request.
-5. Sign back in as Tanmmay and accept the offer.
-6. Sign in as the helper and confirm the match.
-7. In the active match, toggle both ConsentShare buttons to enable contact sharing.
-8. Send chat messages. Contact details are blocked until both users consent, and private meetup language is always blocked.
-9. Sign in as Priya or Admin to review blocked messages, reports, requests, offers, matches, and profiles.
+1. Sign in as Tanmmay and create or use the seeded grocery request.
+2. Sign in as Maya and offer help.
+3. Sign in as Tanmmay and accept Maya's offer.
+4. Sign in as Maya and confirm the match.
+5. Test ConsentShare by toggling both users' consent.
+6. Test SafeMeet, including the optional current-location ETA button.
+7. Test blocked contact info before ConsentShare is enabled.
+8. Test blocked alcohol and private-room messages.
+9. Sign in as Priya or Admin to review blocked messages and reports.
 
 ## Notes
 
-- Missing Supabase env vars show a clean setup screen instead of crashing.
 - Realtime subscriptions are enabled for requests, offers, matches, messages, and reports.
-- SafeMeet estimates use Haversine distance and a 3 mph walking speed.
+- SafeMeet uses public safe spots, Haversine distance, and a 3 mph walking speed.
+- Google Maps links use normal URLs and do not require a Maps API key.
